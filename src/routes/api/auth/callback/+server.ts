@@ -1,16 +1,15 @@
-import { redirect } from '@sveltejs/kit';
+import { isHttpError, isRedirect, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { validateCallback } from '$lib/server/saml';
-import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
-import { eq } from 'drizzle-orm';
-import crypto from 'crypto';
+import { createSession } from '$lib/server/session';
 
-function signSession(data: string, secret: string): string {
-	const hmac = crypto.createHmac('sha256', secret);
-	hmac.update(data);
-	return hmac.digest('hex');
+function sanitizeReturnPath(relayState: string | null): string {
+	if (!relayState || !relayState.startsWith('/') || relayState.startsWith('//')) {
+		return '/';
+	}
+	return relayState;
 }
 
 export const POST: RequestHandler = async ({ request, cookies, url }) => {
@@ -28,23 +27,10 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 			return new Response('Authentication failed', { status: 401 });
 		}
 
-		// Upsert user record
-		const existing = await db.select().from(users).where(eq(users.uid, profile.uid)).limit(1);
-		if (existing.length > 0) {
-			await db
-				.update(users)
-				.set({
-					eppn: profile.eppn,
-					displayName: profile.displayName,
-					givenName: profile.givenName,
-					sn: profile.sn,
-					mail: profile.mail,
-					affiliation: profile.affiliation,
-					lastLoginAt: new Date()
-				})
-				.where(eq(users.uid, profile.uid));
-		} else {
-			await db.insert(users).values({
+		// Atomic upsert — avoids race condition with concurrent logins
+		const [user] = await db
+			.insert(users)
+			.values({
 				uid: profile.uid,
 				eppn: profile.eppn,
 				displayName: profile.displayName,
@@ -52,45 +38,26 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 				sn: profile.sn || '',
 				mail: profile.mail || '',
 				affiliation: profile.affiliation || ''
-			});
-		}
+			})
+			.onConflictDoUpdate({
+				target: users.uid,
+				set: {
+					eppn: profile.eppn,
+					displayName: profile.displayName,
+					givenName: profile.givenName,
+					sn: profile.sn,
+					mail: profile.mail,
+					affiliation: profile.affiliation,
+					lastLoginAt: new Date()
+				}
+			})
+			.returning({ id: users.id });
 
-		const sessionData = JSON.stringify({
-			uid: profile.uid,
-			eppn: profile.eppn,
-			displayName: profile.displayName,
-			givenName: profile.givenName,
-			sn: profile.sn,
-			mail: profile.mail,
-			affiliation: profile.affiliation,
-			nameID: profile.nameID
-		});
+		await createSession(user.id, profile.nameID, cookies, url.protocol === 'https:');
 
-		const secret = env.SESSION_SECRET || 'fallback-secret';
-		const signature = signSession(sessionData, secret);
-
-		const isSecure = url.protocol === 'https:';
-
-		cookies.set('session', sessionData, {
-			path: '/',
-			httpOnly: true,
-			secure: isSecure,
-			sameSite: 'lax',
-			maxAge: 60 * 60 * 8
-		});
-
-		cookies.set('session_sig', signature, {
-			path: '/',
-			httpOnly: true,
-			secure: isSecure,
-			sameSite: 'lax',
-			maxAge: 60 * 60 * 8
-		});
-
-		const returnTo = RelayState || '/';
-		redirect(302, returnTo);
+		redirect(302, sanitizeReturnPath(RelayState));
 	} catch (err) {
-		if (err && typeof err === 'object' && 'status' in err) throw err;
+		if (isRedirect(err) || isHttpError(err)) throw err;
 		console.error('SAML validation error:', err);
 		return new Response('Authentication failed', { status: 401 });
 	}

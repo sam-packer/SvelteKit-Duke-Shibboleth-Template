@@ -1,8 +1,8 @@
 import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { deleteSession } from '$lib/server/session';
 
 export const GET: RequestHandler = async ({ cookies }) => {
-	cookies.delete('session', { path: '/' });
-	cookies.delete('session_sig', { path: '/' });
+	await deleteSession(cookies);
 	redirect(302, '/auth/login');
 };

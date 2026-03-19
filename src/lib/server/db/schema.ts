@@ -12,3 +12,13 @@ export const users = pgTable('users', {
 	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 	lastLoginAt: timestamp('last_login_at', { withTimezone: true }).defaultNow()
 });
+
+export const sessions = pgTable('sessions', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	nameID: text('name_id').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+});
