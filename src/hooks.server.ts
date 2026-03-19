@@ -25,13 +25,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	// Routes that don't require authentication.
-	const publicRoutes = ['/', '/auth', '/api/auth', '/api/health'];
+	const publicRoutes = ['/', '/api/auth', '/api/health'];
 	const isPublicRoute = publicRoutes.some(
 		(route) => event.url.pathname === route || event.url.pathname.startsWith(route + '/')
 	);
 
 	if (!event.locals.user && !isPublicRoute) {
-		redirect(302, '/auth/login');
+		redirect(302, '/api/auth/login');
 	}
 
 	return resolve(event);

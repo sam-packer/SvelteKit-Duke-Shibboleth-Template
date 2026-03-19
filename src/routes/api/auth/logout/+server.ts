@@ -4,5 +4,5 @@ import { deleteSession } from '$lib/server/session';
 
 export const GET: RequestHandler = async ({ cookies }) => {
 	await deleteSession(cookies);
-	redirect(302, '/auth/login');
+	redirect(302, '/');
 };

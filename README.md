@@ -201,7 +201,7 @@ bun run dev
 ```
 
 Visit `http://localhost:5173`. You should see the "SvelteKit is running!" page with a button to sign in. Clicking it
-will redirect you through Duke's SSO, and on success you'll see your name and profile attributes.
+will redirect you directly to Duke's Shibboleth IdP, and on success you'll see your name and profile attributes.
 
 ## Project Structure
 
@@ -231,14 +231,12 @@ will redirect you through Duke's SSO, and on success you'll see your name and pr
 │   └── routes/
 │       ├── +layout.svelte                  # Root layout
 │       ├── +layout.server.ts               # Passes user to all pages
-│       ├── +page.svelte                    # Homepage (public)
-│       ├── auth/
-│       │   └── login/+page.svelte          # Login page
+│       ├── +page.svelte                    # Homepage (public, includes login button)
 │       └── api/
 │           ├── auth/
 │           │   ├── login/+server.ts        # Redirects to Duke Shibboleth IdP
 │           │   ├── callback/+server.ts     # Handles SAML response
-│           │   ├── logout/+server.ts       # Clears session, redirects to login
+│           │   ├── logout/+server.ts       # Clears session, redirects to homepage
 │           │   └── metadata/+server.ts     # SP metadata XML
 │           └── health/+server.ts           # Health check
 ├── drizzle.config.ts                       # Drizzle ORM config
@@ -248,20 +246,24 @@ will redirect you through Duke's SSO, and on success you'll see your name and pr
 
 ## Protecting Routes
 
-By default, the homepage (`/`), `/auth/*`, `/api/auth/*`, and `/api/health` are public. Everything else requires
-authentication.
+By default, the homepage (`/`), `/api/auth/*`, and `/api/health` are public. Everything else requires authentication.
+Unauthenticated requests to protected routes are redirected straight to `/api/auth/login`, which initiates the SAML
+flow with Duke's IdP.
 
-To change this, edit `src/hooks.server.ts`:
+> **Design note:** This template does not include a dedicated login page. This is a well-known pattern for
+> SSO-integrated applications: don't build an intermediate login page when the IdP *is* your login page.
+
+To change which routes are public, edit `src/hooks.server.ts`:
 
 ```typescript
 // Option A: Protect everything except specific routes (current default)
-const publicRoutes = ['/', '/auth', '/api/auth', '/api/health'];
+const publicRoutes = ['/', '/api/auth', '/api/health'];
 const isPublicRoute = publicRoutes.some(
 	(route) => event.url.pathname === route || event.url.pathname.startsWith(route + '/')
 );
 
 if (!event.locals.user && !isPublicRoute) {
-	redirect(302, '/auth/login');
+	redirect(302, '/api/auth/login');
 }
 
 // Option B: Only protect specific routes
@@ -271,7 +273,7 @@ const isProtectedRoute = protectedRoutes.some(
 );
 
 if (!event.locals.user && isProtectedRoute) {
-	redirect(302, '/auth/login');
+	redirect(302, '/api/auth/login');
 }
 ```
 
