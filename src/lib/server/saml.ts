@@ -7,34 +7,41 @@ const DUKE_IDP_ENTRY_POINT = 'https://shib.oit.duke.edu/idp/profile/SAML2/Redire
 const DUKE_IDP_ENTITY_ID = 'https://shib.oit.duke.edu/shibboleth-idp';
 
 /**
- * Normalizes a PEM string by stripping all whitespace from the base64 content
- * and reconstructing it with proper 64-char lines. Handles mangled newlines
- * from env vars (literal \n, missing newlines, extra whitespace, etc.).
+ * Takes raw PEM or bare base64 and produces a valid PEM string.
+ * Handles: missing headers, literal \n in env vars, mangled whitespace, etc.
  */
-function normalizePem(raw: string): string {
-	const pem = raw.replace(/\\n/g, '\n').trim();
-	// Match each PEM block (there may be multiple, e.g. cert chains)
-	return pem.replace(
-		/(-----BEGIN [A-Z ]+-----)([\s\S]*?)(-----END [A-Z ]+-----)/g,
-		(_match, header: string, body: string, footer: string) => {
-			const base64 = body.replace(/\s+/g, '');
-			const lines = base64.match(/.{1,64}/g) || [];
-			return `${header}\n${lines.join('\n')}\n${footer}`;
-		}
-	);
+function normalizePem(raw: string, type: 'CERTIFICATE' | 'PRIVATE KEY'): string {
+	const cleaned = raw.replace(/\\n/g, '\n').trim();
+
+	// If it already has PEM headers, normalize the base64 inside each block
+	if (cleaned.includes('-----BEGIN ')) {
+		return cleaned.replace(
+			/(-----BEGIN [A-Z ]+-----)([\s\S]*?)(-----END [A-Z ]+-----)/g,
+			(_match, header: string, body: string, footer: string) => {
+				const base64 = body.replace(/\s+/g, '');
+				const lines = base64.match(/.{1,64}/g) || [];
+				return `${header}\n${lines.join('\n')}\n${footer}`;
+			}
+		);
+	}
+
+	// Raw base64 without headers - strip whitespace and wrap with proper PEM markers
+	const base64 = cleaned.replace(/\s+/g, '');
+	const lines = base64.match(/.{1,64}/g) || [];
+	return `-----BEGIN ${type}-----\n${lines.join('\n')}\n-----END ${type}-----`;
 }
 
 /**
  * Reads a PEM file from the certs/ directory.
  * Falls back to the given environment variable if the file doesn't exist.
  */
-function readCert(filename: string, envFallback?: string): string {
+function readCert(filename: string, envFallback?: string, type: 'CERTIFICATE' | 'PRIVATE KEY' = 'CERTIFICATE'): string {
 	const filePath = resolve('certs', filename);
 	if (existsSync(filePath)) {
 		return readFileSync(filePath, 'utf-8').trim();
 	}
 	if (!envFallback?.trim()) return '';
-	return normalizePem(envFallback);
+	return normalizePem(envFallback, type);
 }
 
 /**
@@ -63,7 +70,7 @@ function readIdpCerts(): string[] {
 function getSaml(origin?: string) {
 	const baseUrl = origin || env.ORIGIN || env.SAML_SP_ENTITY_ID;
 	const callbackUrl = `${baseUrl}/api/auth/callback`;
-	const spKey = readCert('sp-key.pem', env.SAML_SP_PRIVATE_KEY);
+	const spKey = readCert('sp-key.pem', env.SAML_SP_PRIVATE_KEY, 'PRIVATE KEY');
 	const idpCerts = readIdpCerts();
 
 	return new SAML({
