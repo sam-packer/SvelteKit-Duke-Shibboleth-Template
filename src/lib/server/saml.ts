@@ -7,6 +7,24 @@ const DUKE_IDP_ENTRY_POINT = 'https://shib.oit.duke.edu/idp/profile/SAML2/Redire
 const DUKE_IDP_ENTITY_ID = 'https://shib.oit.duke.edu/shibboleth-idp';
 
 /**
+ * Normalizes a PEM string by stripping all whitespace from the base64 content
+ * and reconstructing it with proper 64-char lines. Handles mangled newlines
+ * from env vars (literal \n, missing newlines, extra whitespace, etc.).
+ */
+function normalizePem(raw: string): string {
+	const pem = raw.replace(/\\n/g, '\n').trim();
+	// Match each PEM block (there may be multiple, e.g. cert chains)
+	return pem.replace(
+		/(-----BEGIN [A-Z ]+-----)([\s\S]*?)(-----END [A-Z ]+-----)/g,
+		(_match, header: string, body: string, footer: string) => {
+			const base64 = body.replace(/\s+/g, '');
+			const lines = base64.match(/.{1,64}/g) || [];
+			return `${header}\n${lines.join('\n')}\n${footer}`;
+		}
+	);
+}
+
+/**
  * Reads a PEM file from the certs/ directory.
  * Falls back to the given environment variable if the file doesn't exist.
  */
@@ -15,7 +33,8 @@ function readCert(filename: string, envFallback?: string): string {
 	if (existsSync(filePath)) {
 		return readFileSync(filePath, 'utf-8').trim();
 	}
-	return envFallback?.trim() || '';
+	if (!envFallback?.trim()) return '';
+	return normalizePem(envFallback);
 }
 
 /**
