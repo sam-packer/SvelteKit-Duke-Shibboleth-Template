@@ -1,7 +1,16 @@
 import { redirect, type Handle } from '@sveltejs/kit';
-import { getSession, deleteSession } from '$lib/server/session';
+import { getSession, deleteSession, cleanExpiredSessions } from '$lib/server/session';
+
+// Periodically clean expired sessions (every 30 minutes)
+const CLEANUP_INTERVAL = 30 * 60 * 1000;
+let lastCleanup = 0;
 
 export const handle: Handle = async ({ event, resolve }) => {
+	const now = Date.now();
+	if (now - lastCleanup > CLEANUP_INTERVAL) {
+		lastCleanup = now;
+		cleanExpiredSessions().catch((err) => console.error('Session cleanup failed:', err));
+	}
 	const user = await getSession(event.cookies);
 
 	if (user) {

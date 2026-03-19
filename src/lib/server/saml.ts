@@ -1,77 +1,13 @@
 import { SAML } from '@node-saml/node-saml';
 import { env } from '$env/dynamic/private';
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { getSpKey, getSpCert, getIdpCerts } from '$lib/server/certs';
 
 const DUKE_IDP_ENTRY_POINT = 'https://shib.oit.duke.edu/idp/profile/SAML2/Redirect/SSO';
-const DUKE_IDP_ENTITY_ID = 'https://shib.oit.duke.edu/shibboleth-idp';
-
-/**
- * Takes raw PEM or bare base64 and produces a valid PEM string.
- * Handles: missing headers, literal \n in env vars, mangled whitespace, etc.
- */
-function normalizePem(raw: string, type: 'CERTIFICATE' | 'PRIVATE KEY'): string {
-	const cleaned = raw.replace(/\\n/g, '\n').trim();
-
-	// If it already has PEM headers, normalize the base64 inside each block
-	if (cleaned.includes('-----BEGIN ')) {
-		return cleaned.replace(
-			/(-----BEGIN [A-Z ]+-----)([\s\S]*?)(-----END [A-Z ]+-----)/g,
-			(_match, header: string, body: string, footer: string) => {
-				const base64 = body.replace(/\s+/g, '');
-				const lines = base64.match(/.{1,64}/g) || [];
-				return `${header}\n${lines.join('\n')}\n${footer}`;
-			}
-		);
-	}
-
-	// Raw base64 without headers - strip whitespace and wrap with proper PEM markers
-	const base64 = cleaned.replace(/\s+/g, '');
-	const lines = base64.match(/.{1,64}/g) || [];
-	return `-----BEGIN ${type}-----\n${lines.join('\n')}\n-----END ${type}-----`;
-}
-
-/**
- * Reads a PEM file from the certs/ directory.
- * Falls back to the given environment variable if the file doesn't exist.
- */
-function readCert(filename: string, envFallback?: string, type: 'CERTIFICATE' | 'PRIVATE KEY' = 'CERTIFICATE'): string {
-	const filePath = resolve('certs', filename);
-	if (existsSync(filePath)) {
-		return readFileSync(filePath, 'utf-8').trim();
-	}
-	if (!envFallback?.trim()) return '';
-	return normalizePem(envFallback, type);
-}
-
-/**
- * Reads the IdP certificate(s). Supports multiple certificates in a single file
- * separated by back-to-back PEM blocks, or multiple files (idp-cert.pem, idp-cert-2.pem, etc.).
- */
-function readIdpCerts(): string[] {
-	const primary = readCert('idp-cert.pem', env.SAML_IDP_CERT);
-	if (!primary) return [];
-
-	// Split on PEM boundaries to support multiple certs in one file
-	const certs = primary
-		.split(/(?=-----BEGIN CERTIFICATE-----)/)
-		.map((c) => c.trim())
-		.filter((c) => c.length > 0);
-
-	// Also check for additional numbered cert files
-	for (let i = 2; i <= 5; i++) {
-		const extra = readCert(`idp-cert-${i}.pem`);
-		if (extra) certs.push(extra);
-	}
-
-	return certs;
-}
 
 function getSaml(origin?: string) {
 	const baseUrl = origin || env.ORIGIN || env.SAML_SP_ENTITY_ID;
 	const callbackUrl = `${baseUrl}/api/auth/callback`;
-	const spKey = readCert('sp-key.pem', env.SAML_SP_PRIVATE_KEY, 'PRIVATE KEY');
-	const idpCerts = readIdpCerts();
+	const spKey = getSpKey();
 
 	return new SAML({
 		issuer: env.SAML_SP_ENTITY_ID || '',
@@ -79,7 +15,7 @@ function getSaml(origin?: string) {
 		privateKey: spKey,
 		decryptionPvk: spKey,
 		entryPoint: DUKE_IDP_ENTRY_POINT,
-		idpCert: idpCerts,
+		idpCert: getIdpCerts(),
 		signatureAlgorithm: 'sha256',
 		digestAlgorithm: 'sha256',
 		wantAssertionsSigned: false,
@@ -94,7 +30,7 @@ function getSaml(origin?: string) {
 
 export function getSpMetadata(): string {
 	const saml = getSaml();
-	const spCert = readCert('sp-cert.pem', env.SAML_SP_CERTIFICATE);
+	const spCert = getSpCert();
 	return saml.generateServiceProviderMetadata(spCert, spCert);
 }
 
@@ -122,6 +58,7 @@ export async function validateCallback(
 	const { profile } = await saml.validatePostResponseAsync(body);
 	if (!profile) return null;
 
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const attrs = profile as any;
 
 	// SAML attributes can be strings or arrays. Normalize to string.
@@ -139,14 +76,11 @@ export async function validateCallback(
 		return '';
 	}
 
-	const eppn = attr(
-		'urn:oid:1.3.6.1.4.1.5923.1.1.1.6',
-		'eduPersonPrincipalName'
-	) || profile.nameID || '';
-	const uid = attr(
-		'urn:oid:0.9.2342.19200300.100.1.1',
-		'uid'
-	) || eppn.split('@')[0] || '';
+	const eppn =
+		attr('urn:oid:1.3.6.1.4.1.5923.1.1.1.6', 'eduPersonPrincipalName') ||
+		profile.nameID ||
+		'';
+	const uid = attr('urn:oid:0.9.2342.19200300.100.1.1', 'uid') || eppn.split('@')[0] || '';
 	const displayName = attr('urn:oid:2.16.840.1.113730.3.1.241', 'displayName');
 	const givenName = attr('urn:oid:2.5.4.42', 'givenName');
 	const sn = attr('urn:oid:2.5.4.4', 'sn');

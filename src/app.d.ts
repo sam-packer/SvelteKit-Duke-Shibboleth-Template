@@ -1,16 +1,9 @@
+import type { SessionUser } from '$lib/server/session';
+
 declare global {
 	namespace App {
 		interface Locals {
-			user: {
-				uid: string;
-				eppn: string;
-				displayName: string;
-				givenName: string;
-				sn: string;
-				mail: string;
-				affiliation: string;
-				nameID: string;
-			} | null;
+			user: SessionUser | null;
 		}
 	}
 }

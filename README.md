@@ -13,7 +13,7 @@ register with Duke, and you have a fully authenticated app.
 - **[Bun](https://bun.sh/)** as the package manager. Do not use npm.
 - **Duke SAML SSO** via `@node-saml/node-saml` - login, logout, SP metadata endpoint
 - **Signed cookie sessions** with HMAC-SHA256 verification
-- **PostgreSQL + Drizzle ORM** with a `users` table (auto-populated on first login)
+- **PostgreSQL + Drizzle ORM** with `users` and `sessions` tables (auto-populated on first login)
 - **Tailwind CSS v4** with [shadcn-svelte](https://www.shadcn-svelte.com/) UI components
 - **Node.js adapter** for deployment anywhere (Railway, Fly, VPS, Docker, etc.)
 - **Cross-platform** - works on Windows, macOS, and Linux (no bash/openssl required)
@@ -215,20 +215,23 @@ will redirect you through Duke's SSO, and on success you'll see your name and pr
 ├── src/
 │   ├── app.d.ts                            # TypeScript types (App.Locals)
 │   ├── app.html                            # HTML shell
-│   ├── hooks.server.ts                     # Session verification & route protection
+│   ├── hooks.server.ts                     # Session verification, route protection & cleanup
 │   ├── lib/
 │   │   ├── components/ui/                  # shadcn-svelte components
 │   │   ├── utils.ts                        # Tailwind utilities
 │   │   └── server/
-│   │       ├── db/
-│   │       │   ├── index.ts                # Database client
-│   │       │   └── schema.ts               # Drizzle schema (users table)
-│   │       └── saml.ts                     # SAML configuration & helpers
+│   │       ├── certs.ts                    # PEM normalization, cert reading & caching
+│   │       ├── saml.ts                     # SAML protocol (login URL, validation, metadata)
+│   │       ├── session.ts                  # Session lifecycle (create, get, delete, cleanup)
+│   │       ├── url.ts                      # URL validation (open redirect protection)
+│   │       ├── user.ts                     # User upsert from SAML profile
+│   │       └── db/
+│   │           ├── index.ts                # Database client (lazy singleton)
+│   │           └── schema.ts               # Drizzle schema (users & sessions tables)
 │   └── routes/
 │       ├── +layout.svelte                  # Root layout
 │       ├── +layout.server.ts               # Passes user to all pages
 │       ├── +page.svelte                    # Homepage (public)
-│       ├── +page.server.ts                 # Homepage server load
 │       ├── auth/
 │       │   └── login/+page.svelte          # Login page
 │       └── api/
@@ -297,7 +300,7 @@ export const actions: Actions = {
 };
 ```
 
-The user object shape (defined in `src/app.d.ts`):
+The user object shape (defined as `SessionUser` in `src/lib/server/session.ts`):
 
 ```typescript
 {
@@ -314,8 +317,12 @@ The user object shape (defined in `src/app.d.ts`):
 
 ## Database
 
-The template includes a `users` table that is automatically populated when someone logs in for the first time.
-Subsequent logins update the profile and `last_login_at` timestamp.
+The template includes two tables:
+
+- **`users`** — automatically populated when someone logs in for the first time. Subsequent logins update the profile
+  and `last_login_at` timestamp.
+- **`sessions`** — stores active sessions with an expiration timestamp. Each session references a user and includes the
+  SAML NameID for logout. Expired sessions are automatically cleaned up periodically.
 
 To add your own tables, edit `src/lib/server/db/schema.ts` and run:
 

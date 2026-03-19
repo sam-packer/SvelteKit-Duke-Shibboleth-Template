@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
-import { eq, and, gt } from 'drizzle-orm';
+import { eq, and, gt, lt } from 'drizzle-orm';
 import type { Cookies } from '@sveltejs/kit';
 
 const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours
@@ -47,11 +47,7 @@ export async function createSession(
 
 	const [session] = await db
 		.insert(sessions)
-		.values({
-			userId,
-			nameID,
-			expiresAt
-		})
+		.values({ userId, nameID, expiresAt })
 		.returning({ id: sessions.id });
 
 	const sessionId = session.id;
@@ -114,11 +110,22 @@ export async function getSession(cookies: Cookies): Promise<SessionUser | null> 
 
 export async function deleteSession(cookies: Cookies): Promise<void> {
 	const sessionId = cookies.get('session_id');
+	const sessionSig = cookies.get('session_sig');
 
-	if (sessionId) {
-		await db.delete(sessions).where(eq(sessions.id, sessionId));
+	if (sessionId && sessionSig) {
+		try {
+			if (verify(sessionId, sessionSig)) {
+				await db.delete(sessions).where(eq(sessions.id, sessionId));
+			}
+		} catch {
+			// Invalid signature — just clear cookies
+		}
 	}
 
 	cookies.delete('session_id', { path: '/' });
 	cookies.delete('session_sig', { path: '/' });
+}
+
+export async function cleanExpiredSessions(): Promise<void> {
+	await db.delete(sessions).where(lt(sessions.expiresAt, new Date()));
 }
