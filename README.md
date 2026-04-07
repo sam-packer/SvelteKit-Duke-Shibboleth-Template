@@ -5,7 +5,15 @@ register with Duke, and you have a fully authenticated app.
 
 > This template uses SAML vocabulary throughout. At a minimum, you should know that the Duke login page you see when
 > signing in is the **Shibboleth IdP** (Duke's Identity Provider), and this application is a **Service Provider (SP)**
-> that communicates with it. For a full glossary of SAML terms, see the
+> that communicates with it.
+>
+> In this setup, the **Entity ID** is the SP's unique identifier in Duke. It does not have to be a real or `duke.edu`
+> domain, though using your app's domain is good hygiene.
+>
+> The **ACS URL** is the callback URL where Duke sends the user back after authentication. In this template, the ACS
+> URL is `{ORIGIN}/api/auth/callback`.
+>
+> For a full glossary of SAML terms, see the
 > [Vocabulary tab](https://authentication.oit.duke.edu/manager/documentation) on Duke's documentation page.
 
 ## What's Included
@@ -38,11 +46,11 @@ bun run setup
 
 This creates three files in `certs/`:
 
-| File           | What it is                                                | Share with Duke?                                 |
-|----------------|-----------------------------------------------------------|--------------------------------------------------|
-| `sp-key.pem`   | Private key for signing SAML requests                     | **No** - keep secret                             |
-| `sp-cert.pem`  | Public certificate for your SP                            | **Yes** - you'll paste this during registration  |
-| `idp-cert.pem` | Duke's IdP signing certificate (downloaded automatically) | N/A - this is Duke's certificate                 |
+| File           | What it is                                                | Share with Duke?                                |
+|----------------|-----------------------------------------------------------|-------------------------------------------------|
+| `sp-key.pem`   | Private key for signing SAML requests                     | **No** - keep secret                            |
+| `sp-cert.pem`  | Public certificate for your SP                            | **Yes** - you'll paste this during registration |
+| `idp-cert.pem` | Duke's IdP signing certificate (downloaded automatically) | N/A - this is Duke's certificate                |
 
 These files are `.gitignore`'d so they won't be committed.
 
@@ -82,7 +90,7 @@ Edit your `.env` file:
 ```env
 DATABASE_URL="postgresql://postgres:password@localhost:5432/my_application"
 SESSION_SECRET="your_randomly_generated_string"
-SAML_SP_ENTITY_ID="https://myapp.duke.edu"
+SAML_SP_ENTITY_ID="https://myapp.example.com"
 ORIGIN="http://localhost:5173"
 ```
 
@@ -91,15 +99,16 @@ ORIGIN="http://localhost:5173"
 These values must be consistent with what you register with Duke. Getting them wrong is the most common source of SAML
 errors.
 
-| Value               | What it is                                                                                                                | Example                                             |
-|---------------------|---------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------|
-| `SAML_SP_ENTITY_ID` | A unique identifier for your app in Duke's IdP. Must match your Duke registration exactly. Always your production domain. | `https://myapp.duke.edu`                            |
-| `ORIGIN`            | The URL where your app is currently reachable. Changes between environments. Used to construct the ACS callback URL.      | `http://localhost:5173` or `https://myapp.duke.edu` |
-| ACS URL             | Where Duke sends the user after login. Auto-generated as `{ORIGIN}/api/auth/callback`.                                    | `http://localhost:5173/api/auth/callback`           |
+| Value               | What it is                                                                                                                                                                                                                       | Example                                                |
+|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------|
+| `SAML_SP_ENTITY_ID` | A unique identifier for your app in Duke's IdP. Must match your Duke registration exactly. Usually your app's domain for good hygiene, but technically any unique identifier Duke accepts. It does not need to be on `duke.edu`. | `https://myapp.example.com`                            |
+| `ORIGIN`            | The URL where your app is currently reachable. Changes between environments. Used to construct the ACS callback URL.                                                                                                             | `http://localhost:5173` or `https://myapp.example.com` |
+| ACS URL             | The callback URL where Duke sends the user after login and where auth finishes. Auto-generated as `{ORIGIN}/api/auth/callback`.                                                                                                  | `http://localhost:5173/api/auth/callback`              |
 
-**The Entity ID is always your production domain**: Duke only supports one Entity ID per SP registration. However, you
-can register **multiple ACS URLs** on the same SP, which is how local development works. You register both your
-production ACS and a localhost ACS under the same Entity ID.
+**The Entity ID stays the same across environments**: Duke only supports one Entity ID per SP registration. In
+practice, this is just the unique name of your app in Duke. It does not have to be your production domain, though using
+your domain is the cleanest convention. You can register **multiple ACS URLs** on the same SP, which is how local
+development works. You register both your production ACS and a localhost ACS under the same Entity ID.
 
 For **local development** (`.env`):
 
@@ -128,10 +137,13 @@ Select **"No, I will provide registration details manually."** and fill in the f
 
 #### Entity ID
 
-Use your production domain. This is a permanent identifier, it does not change between environments.
+Use a unique identifier for your app. Best practice is to use your production domain, but it does not have to be a real
+domain. It also does not need to be a `duke.edu` domain. Duke effectively treats this as the unique name for your
+application. If you ever change it later, update both your Duke registration and `SAML_SP_ENTITY_ID` so they still
+match exactly.
 
 ```
-https://myapp.duke.edu
+https://myapp.example.com
 ```
 
 This must **exactly match** the `SAML_SP_ENTITY_ID` in your `.env` file.
@@ -161,14 +173,14 @@ The template's SAML configuration (`src/lib/server/saml.ts`) expects a signed re
 
 #### ACS URLs
 
-This is where Duke redirects the user after authentication. You can register **multiple ACS URLs** on the same SP. Add
-both your production URL and localhost for development.
+ACS means the callback URL where Duke redirects the user after authentication and where your app finishes the auth flow.
+You can register **multiple ACS URLs** on the same SP. Add both your production URL and localhost for development.
 
 **ACS 1 (production):**
 
 - **Binding:** `2.0:bindings:HTTP-POST`
 - **Default ACS:** checked
-- **URL:** `https://myapp.duke.edu/api/auth/callback`
+- **URL:** `https://myapp.example.com/api/auth/callback`
 
 **ACS 2 (local development):**
 
