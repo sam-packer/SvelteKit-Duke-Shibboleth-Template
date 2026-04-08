@@ -1,0 +1,263 @@
+/**
+ * Creates a mock user session and launches the dev server with a browser
+ * pre-authenticated as the mock user. Useful for testing with multiple accounts
+ * without needing multiple Duke NetIDs.
+ *
+ * How it works:
+ *   1. Upserts a fake user into the database
+ *   2. Creates a signed session row (same as a real login would)
+ *   3. Writes a temporary Vite plugin file that adds dev-server middleware
+ *      to set httpOnly cookies on /__mock_session (the plugin is deleted on exit)
+ *   4. Starts the dev server and opens the browser to the middleware URL
+ *
+ * No routes are added to your app — the cookie-setting endpoint lives entirely
+ * inside Vite's dev middleware and is never part of a production build.
+ *
+ * Usage:
+ *   bun run mock                          # default mock user
+ *   bun run mock --uid jd123 --name "Jane Doe" --email jane@duke.edu
+ *
+ * Options:
+ *   --uid          NetID / username           (default: mock001)
+ *   --name         Display name               (default: Mock User)
+ *   --email        Email address              (default: mock001@duke.edu)
+ *   --affiliation  Affiliation string         (default: student)
+ *   --port         Dev server port            (default: 5173)
+ *   --no-open      Don't auto-open the browser
+ */
+
+import crypto from 'crypto';
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { resolve } from 'path';
+import { spawn } from 'child_process';
+
+// ---------------------------------------------------------------------------
+// 1. Load .env
+// ---------------------------------------------------------------------------
+function loadEnv() {
+	try {
+		const raw = readFileSync(resolve(process.cwd(), '.env'), 'utf-8');
+		for (const line of raw.split('\n')) {
+			const trimmed = line.trim();
+			if (!trimmed || trimmed.startsWith('#')) continue;
+			const eqIdx = trimmed.indexOf('=');
+			if (eqIdx === -1) continue;
+			const key = trimmed.slice(0, eqIdx).trim();
+			let value = trimmed.slice(eqIdx + 1).trim();
+			if (
+				(value.startsWith('"') && value.endsWith('"')) ||
+				(value.startsWith("'") && value.endsWith("'"))
+			) {
+				value = value.slice(1, -1);
+			}
+			if (!process.env[key]) {
+				process.env[key] = value;
+			}
+		}
+	} catch {
+		// .env file is optional if vars are already set
+	}
+}
+loadEnv();
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+
+if (!DATABASE_URL) {
+	console.error('ERROR: DATABASE_URL is not set. Check your .env file.');
+	process.exit(1);
+}
+if (!SESSION_SECRET) {
+	console.error('ERROR: SESSION_SECRET is not set. Check your .env file.');
+	process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Parse CLI args
+// ---------------------------------------------------------------------------
+function getArg(name: string, fallback: string): string {
+	const idx = process.argv.indexOf(`--${name}`);
+	return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : fallback;
+}
+const hasFlag = (name: string) => process.argv.includes(`--${name}`);
+
+const uid = getArg('uid', 'mock001');
+const displayName = getArg('name', 'Mock User');
+const mail = getArg('email', `${uid}@duke.edu`);
+const affiliation = getArg('affiliation', 'student');
+const port = getArg('port', '5173');
+const noOpen = hasFlag('no-open');
+
+const eppn = `${uid}@duke.edu`;
+const givenName = displayName.split(' ')[0];
+const sn = displayName.split(' ').slice(1).join(' ') || 'User';
+
+// ---------------------------------------------------------------------------
+// 3. Database operations (uses Drizzle ORM — same schema as the app)
+// ---------------------------------------------------------------------------
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { users, sessions } from '../src/lib/server/db/schema';
+
+const client = postgres(DATABASE_URL);
+const db = drizzle(client);
+
+function sign(data: string): string {
+	const hmac = crypto.createHmac('sha256', SESSION_SECRET!);
+	hmac.update(data);
+	return hmac.digest('hex');
+}
+
+async function createMockSession(): Promise<{ sessionId: string; signature: string }> {
+	const [user] = await db
+		.insert(users)
+		.values({
+			uid,
+			eppn,
+			displayName,
+			givenName,
+			sn,
+			mail,
+			affiliation
+		})
+		.onConflictDoUpdate({
+			target: users.uid,
+			set: {
+				eppn,
+				displayName,
+				givenName,
+				sn,
+				mail,
+				affiliation,
+				lastLoginAt: new Date()
+			}
+		})
+		.returning({ id: users.id });
+
+	const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
+	const nameID = `mock-${uid}`;
+
+	const [session] = await db
+		.insert(sessions)
+		.values({
+			userId: user.id,
+			nameID,
+			expiresAt
+		})
+		.returning({ id: sessions.id });
+
+	const sessionId = session.id;
+	const signature = sign(sessionId);
+
+	return { sessionId, signature };
+}
+
+// ---------------------------------------------------------------------------
+// 4. Temporary Vite plugin for cookie injection
+// ---------------------------------------------------------------------------
+const PLUGIN_PATH = resolve(process.cwd(), 'scripts', '_mock-session-plugin.js');
+
+function writeMockPlugin(sessionId: string, signature: string) {
+	// This is a plain JS Vite plugin — it runs only in the dev server process.
+	// It intercepts a single path (/__mock_session), sets httpOnly cookies on
+	// the localhost origin, and redirects to /. It's never bundled or deployed.
+	const code = `
+// AUTO-GENERATED by scripts/mock.ts — do not commit this file.
+export default function mockSessionPlugin() {
+	return {
+		name: 'mock-session',
+		configureServer(server) {
+			server.middlewares.use('/__mock_session', (_req, res) => {
+				res.setHeader('Set-Cookie', [
+					'session_id=${sessionId}; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax',
+					'session_sig=${signature}; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax'
+				]);
+				res.writeHead(302, { Location: '/' });
+				res.end();
+			});
+		}
+	};
+}
+`.trimStart();
+
+	writeFileSync(PLUGIN_PATH, code);
+}
+
+function cleanupPlugin() {
+	try {
+		if (existsSync(PLUGIN_PATH)) unlinkSync(PLUGIN_PATH);
+	} catch {
+		// best-effort cleanup
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 5. Main
+// ---------------------------------------------------------------------------
+async function main() {
+	console.log(`\nCreating mock session for user "${displayName}" (${uid})...\n`);
+
+	const { sessionId, signature } = await createMockSession();
+	await client.end();
+
+	console.log(`  uid:         ${uid}`);
+	console.log(`  eppn:        ${eppn}`);
+	console.log(`  name:        ${displayName}`);
+	console.log(`  email:       ${mail}`);
+	console.log(`  affiliation: ${affiliation}`);
+	console.log(`  session:     ${sessionId}`);
+	console.log();
+
+	// Write the temporary Vite plugin
+	writeMockPlugin(sessionId, signature);
+
+	const origin = `http://localhost:${port}`;
+	const mockUrl = `${origin}/__mock_session`;
+
+	console.log(`Starting dev server on port ${port}...\n`);
+
+	const devServer = spawn('bun', ['run', 'vite', 'dev', '--port', port], {
+		stdio: 'inherit',
+		env: { ...process.env, MOCK_SESSION: 'true' }
+	});
+
+	// Cleanup plugin file on exit
+	const cleanup = () => {
+		cleanupPlugin();
+		devServer.kill('SIGINT');
+	};
+	process.on('SIGINT', cleanup);
+	process.on('SIGTERM', cleanup);
+	process.on('exit', cleanupPlugin);
+
+	if (!noOpen) {
+		// Wait for the dev server to be ready
+		const maxAttempts = 30;
+		for (let i = 0; i < maxAttempts; i++) {
+			try {
+				await fetch(origin);
+				break;
+			} catch {
+				await new Promise((r) => setTimeout(r, 500));
+			}
+		}
+
+		console.log(`Opening browser with mock session...\n`);
+		console.log(`  ${mockUrl}\n`);
+		spawn('open', [mockUrl], { stdio: 'ignore' });
+	} else {
+		console.log(`Mock login URL (open manually):\n`);
+		console.log(`  ${mockUrl}\n`);
+	}
+
+	devServer.on('close', (code) => {
+		cleanupPlugin();
+		process.exit(code ?? 0);
+	});
+}
+
+main().catch((err) => {
+	console.error('Mock session setup failed:', err);
+	cleanupPlugin();
+	process.exit(1);
+});

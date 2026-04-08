@@ -71,8 +71,8 @@ async function downloadIdpCert() {
 		// Extract all X509Certificate values from the metadata.
 		// These appear inside <KeyDescriptor use="signing"> elements.
 		const certRegex = /<(?:ds:)?X509Certificate>\s*([\s\S]*?)\s*<\/(?:ds:)?X509Certificate>/g;
-		const certs = [];
-		let match;
+		const certs: string[] = [];
+		let match: RegExpExecArray | null;
 		while ((match = certRegex.exec(xml)) !== null) {
 			const base64 = match[1].replace(/\s+/g, '');
 			certs.push(base64);
@@ -87,13 +87,14 @@ async function downloadIdpCert() {
 
 		// Write all certs as PEM blocks in a single file
 		const pemContent = uniqueCerts
-			.map((cert) => `-----BEGIN CERTIFICATE-----\n${cert.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----`)
+			.map((cert) => `-----BEGIN CERTIFICATE-----\n${cert.match(/.{1,64}/g)!.join('\n')}\n-----END CERTIFICATE-----`)
 			.join('\n');
 
 		writeFileSync(IDP_CERT, pemContent + '\n');
 		console.log(`[done] ${IDP_CERT} (${uniqueCerts.length} certificate${uniqueCerts.length > 1 ? 's' : ''})`);
 	} catch (err) {
-		console.error(`[error] Failed to download IdP certificate: ${err.message}`);
+		const message = err instanceof Error ? err.message : String(err);
+		console.error(`[error] Failed to download IdP certificate: ${message}`);
 		console.error(`        Download the metadata manually from: ${DUKE_IDP_METADATA_URL}`);
 		console.error(`        Extract the X509Certificate and save as: ${IDP_CERT}`);
 	}
