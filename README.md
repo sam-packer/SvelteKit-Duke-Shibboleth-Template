@@ -378,6 +378,10 @@ Mount your certificate files to the `certs/` directory. Works with Docker volume
 Set `SAML_SP_PRIVATE_KEY`, `SAML_SP_CERTIFICATE`, and `SAML_IDP_CERT` as environment variables containing the full PEM
 content. The app falls back to these if the files don't exist.
 
+## Related
+
+- **[duke-identity-tools](https://github.com/sam-packer/duke-identity-tools)** — A TypeScript client for Duke's LDAP identity services. Use it to look up people by NetID, email, or other attributes beyond what SAML provides. Install with `bun add duke-identity-tools`.
+
 ## Reference
 
 - **Duke SP Registration:** https://authentication.oit.duke.edu/manager/register/sp
