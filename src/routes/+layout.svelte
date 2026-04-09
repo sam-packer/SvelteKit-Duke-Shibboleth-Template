@@ -1,6 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from '$lib/components/ui/sonner';
 
 	let { children } = $props();
@@ -11,5 +12,6 @@
 	<title>Duke Shibboleth IdP SvelteKit</title>
 </svelte:head>
 
+<ModeWatcher />
 <Toaster />
 {@render children()}
