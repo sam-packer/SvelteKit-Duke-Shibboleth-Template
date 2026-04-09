@@ -10,7 +10,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (now - lastCleanup > CLEANUP_INTERVAL) {
 		lastCleanup = now;
 		cleanExpiredSessions().catch((err) => {
-			lastCleanup = 0; // retry on next request
 			console.error('Session cleanup failed:', err);
 		});
 	}

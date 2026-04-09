@@ -67,10 +67,12 @@
 		</Card>
 
 		<div class="mt-6 space-y-3 text-center">
-			<Button href="/api/auth/logout" variant="outline">
-				<LogOut class="mr-2 h-4 w-4" />
-				Sign Out
-			</Button>
+			<form method="POST" action="/api/auth/logout">
+				<Button type="submit" variant="outline">
+					<LogOut class="mr-2 h-4 w-4" />
+					Sign Out
+				</Button>
+			</form>
 			<p class="text-sm text-muted-foreground">
 				The authenticated user is available on every page via <code
 					class="rounded bg-muted px-1 py-0.5">locals.user</code
