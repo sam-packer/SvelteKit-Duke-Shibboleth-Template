@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -13,12 +13,19 @@ export const users = pgTable('users', {
 	lastLoginAt: timestamp('last_login_at', { withTimezone: true }).defaultNow()
 });
 
-export const sessions = pgTable('sessions', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	userId: uuid('user_id')
-		.notNull()
-		.references(() => users.id, { onDelete: 'cascade' }),
-	nameID: text('name_id').notNull(),
-	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
-});
+export const sessions = pgTable(
+	'sessions',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		nameID: text('name_id').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+	},
+	(table) => [
+		index('sessions_expires_at_idx').on(table.expiresAt),
+		index('sessions_user_id_idx').on(table.userId)
+	]
+);

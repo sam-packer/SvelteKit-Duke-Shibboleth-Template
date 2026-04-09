@@ -3,7 +3,7 @@
  * Only allows relative paths starting with a single slash.
  */
 export function sanitizeReturnPath(value: string | null): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//')) {
+	if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) {
 		return '/';
 	}
 	return value;

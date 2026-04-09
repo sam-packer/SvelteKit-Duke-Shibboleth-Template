@@ -9,7 +9,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const now = Date.now();
 	if (now - lastCleanup > CLEANUP_INTERVAL) {
 		lastCleanup = now;
-		cleanExpiredSessions().catch((err) => console.error('Session cleanup failed:', err));
+		cleanExpiredSessions().catch((err) => {
+			lastCleanup = 0; // retry on next request
+			console.error('Session cleanup failed:', err);
+		});
 	}
 	const user = await getSession(event.cookies);
 

@@ -63,7 +63,9 @@ export function getIdpCerts(): string[] {
 	if (cachedIdpCerts === undefined) {
 		const primary = readCert('idp-cert.pem', env.SAML_IDP_CERT);
 		if (!primary) {
-			cachedIdpCerts = [];
+			throw new Error(
+				'No IdP certificate found. Run "bun run setup" or set SAML_IDP_CERT environment variable.'
+			);
 		} else {
 			const certs = primary
 				.split(/(?=-----BEGIN CERTIFICATE-----)/)

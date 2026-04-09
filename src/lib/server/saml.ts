@@ -4,12 +4,17 @@ import { getSpKey, getSpCert, getIdpCerts } from '$lib/server/certs';
 
 const DUKE_IDP_ENTRY_POINT = 'https://shib.oit.duke.edu/idp/profile/SAML2/Redirect/SSO';
 
+const samlCache = new Map<string, SAML>();
+
 function getSaml(origin?: string) {
 	const baseUrl = origin || env.ORIGIN || env.SAML_SP_ENTITY_ID;
 	const callbackUrl = `${baseUrl}/api/auth/callback`;
-	const spKey = getSpKey();
 
-	return new SAML({
+	const cached = samlCache.get(callbackUrl);
+	if (cached) return cached;
+
+	const spKey = getSpKey();
+	const saml = new SAML({
 		issuer: env.SAML_SP_ENTITY_ID || '',
 		callbackUrl,
 		privateKey: spKey,
@@ -26,6 +31,9 @@ function getSaml(origin?: string) {
 		forceAuthn: false,
 		disableRequestedAuthnContext: true
 	});
+
+	samlCache.set(callbackUrl, saml);
+	return saml;
 }
 
 export function getSpMetadata(): string {
@@ -58,8 +66,7 @@ export async function validateCallback(
 	const { profile } = await saml.validatePostResponseAsync(body);
 	if (!profile) return null;
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const attrs = profile as any;
+	const attrs = profile as Record<string, unknown>;
 
 	// SAML attributes can be strings or arrays. Normalize to string.
 	function str(value: unknown): string {

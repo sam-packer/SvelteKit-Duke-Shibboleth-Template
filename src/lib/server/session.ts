@@ -1,8 +1,8 @@
-import crypto from 'crypto';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { sessions, users } from '$lib/server/db/schema';
 import { eq, and, gt, lt } from 'drizzle-orm';
+import { sign as hmacSign, verify as hmacVerify } from '$lib/server/hmac';
 import type { Cookies } from '@sveltejs/kit';
 
 const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours
@@ -16,14 +16,11 @@ function getSecret(): string {
 }
 
 function sign(data: string): string {
-	const hmac = crypto.createHmac('sha256', getSecret());
-	hmac.update(data);
-	return hmac.digest('hex');
+	return hmacSign(data, getSecret());
 }
 
 function verify(data: string, signature: string): boolean {
-	const expected = sign(data);
-	return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+	return hmacVerify(data, signature, getSecret());
 }
 
 export interface SessionUser {

@@ -26,39 +26,11 @@
  *   --no-open      Don't auto-open the browser
  */
 
-import crypto from 'crypto';
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { spawn } from 'child_process';
-
-// ---------------------------------------------------------------------------
-// 1. Load .env
-// ---------------------------------------------------------------------------
-function loadEnv() {
-	try {
-		const raw = readFileSync(resolve(process.cwd(), '.env'), 'utf-8');
-		for (const line of raw.split('\n')) {
-			const trimmed = line.trim();
-			if (!trimmed || trimmed.startsWith('#')) continue;
-			const eqIdx = trimmed.indexOf('=');
-			if (eqIdx === -1) continue;
-			const key = trimmed.slice(0, eqIdx).trim();
-			let value = trimmed.slice(eqIdx + 1).trim();
-			if (
-				(value.startsWith('"') && value.endsWith('"')) ||
-				(value.startsWith("'") && value.endsWith("'"))
-			) {
-				value = value.slice(1, -1);
-			}
-			if (!process.env[key]) {
-				process.env[key] = value;
-			}
-		}
-	} catch {
-		// .env file is optional if vars are already set
-	}
-}
-loadEnv();
+import 'dotenv/config';
+import { sign } from '../src/lib/server/hmac';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -102,12 +74,6 @@ import { users, sessions } from '../src/lib/server/db/schema';
 const client = postgres(DATABASE_URL);
 const db = drizzle(client);
 
-function sign(data: string): string {
-	const hmac = crypto.createHmac('sha256', SESSION_SECRET!);
-	hmac.update(data);
-	return hmac.digest('hex');
-}
-
 async function createMockSession(): Promise<{ sessionId: string; signature: string }> {
 	const [user] = await db
 		.insert(users)
@@ -147,7 +113,7 @@ async function createMockSession(): Promise<{ sessionId: string; signature: stri
 		.returning({ id: sessions.id });
 
 	const sessionId = session.id;
-	const signature = sign(sessionId);
+	const signature = sign(sessionId, SESSION_SECRET!);
 
 	return { sessionId, signature };
 }
@@ -244,7 +210,9 @@ async function main() {
 
 		console.log(`Opening browser with mock session...\n`);
 		console.log(`  ${mockUrl}\n`);
-		spawn('open', [mockUrl], { stdio: 'ignore' });
+		const openCmd =
+			process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+		spawn(openCmd, [mockUrl], { stdio: 'ignore', shell: process.platform === 'win32' });
 	} else {
 		console.log(`Mock login URL (open manually):\n`);
 		console.log(`  ${mockUrl}\n`);
