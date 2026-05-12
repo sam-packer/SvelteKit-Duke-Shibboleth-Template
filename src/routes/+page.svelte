@@ -8,7 +8,16 @@
 		CardTitle
 	} from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
-	import { LogIn, LogOut, User, Mail, Shield, PartyPopper, Rocket } from '@lucide/svelte';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import {
+		Login03Icon,
+		Logout03Icon,
+		UserIcon,
+		Mail01Icon,
+		Shield01Icon,
+		PartyIcon,
+		RocketIcon
+	} from '@hugeicons/core-free-icons';
 
 	let { data } = $props();
 </script>
@@ -16,7 +25,11 @@
 <div class="flex min-h-screen flex-col items-center justify-center bg-background px-4">
 	{#if data.user}
 		<div class="mb-8 text-center">
-			<PartyPopper class="mx-auto mb-4 h-12 w-12 text-primary" />
+			<HugeiconsIcon
+				icon={PartyIcon}
+				strokeWidth={2}
+				class="mx-auto mb-4 h-12 w-12 text-primary"
+			/>
 			<h1 class="text-4xl font-bold tracking-tight">It's working!</h1>
 			<p class="mt-2 text-lg text-muted-foreground">
 				You are <span class="font-semibold text-foreground">{data.user.displayName}</span>
@@ -30,7 +43,7 @@
 			</CardHeader>
 			<CardContent class="space-y-4">
 				<div class="flex items-center gap-3">
-					<User class="h-4 w-4 text-muted-foreground" />
+					<HugeiconsIcon icon={UserIcon} strokeWidth={2} class="h-4 w-4 text-muted-foreground" />
 					<div>
 						<p class="text-sm font-medium">Name</p>
 						<p class="text-sm text-muted-foreground">{data.user.displayName}</p>
@@ -38,7 +51,7 @@
 				</div>
 
 				<div class="flex items-center gap-3">
-					<Mail class="h-4 w-4 text-muted-foreground" />
+					<HugeiconsIcon icon={Mail01Icon} strokeWidth={2} class="h-4 w-4 text-muted-foreground" />
 					<div>
 						<p class="text-sm font-medium">Email</p>
 						<p class="text-sm text-muted-foreground">{data.user.mail || data.user.eppn}</p>
@@ -46,7 +59,11 @@
 				</div>
 
 				<div class="flex items-center gap-3">
-					<Shield class="h-4 w-4 text-muted-foreground" />
+					<HugeiconsIcon
+						icon={Shield01Icon}
+						strokeWidth={2}
+						class="h-4 w-4 text-muted-foreground"
+					/>
 					<div>
 						<p class="text-sm font-medium">NetID</p>
 						<p class="text-sm text-muted-foreground">{data.user.uid}</p>
@@ -69,7 +86,7 @@
 		<div class="mt-6 space-y-3 text-center">
 			<form method="POST" action="/api/auth/logout">
 				<Button type="submit" variant="outline">
-					<LogOut class="mr-2 h-4 w-4" />
+					<HugeiconsIcon icon={Logout03Icon} strokeWidth={2} class="mr-2 h-4 w-4" />
 					Sign Out
 				</Button>
 			</form>
@@ -81,7 +98,11 @@
 		</div>
 	{:else}
 		<div class="mb-8 text-center">
-			<Rocket class="mx-auto mb-4 h-12 w-12 text-primary" />
+			<HugeiconsIcon
+				icon={RocketIcon}
+				strokeWidth={2}
+				class="mx-auto mb-4 h-12 w-12 text-primary"
+			/>
 			<h1 class="text-4xl font-bold tracking-tight">SvelteKit is running!</h1>
 			<p class="mt-2 text-muted-foreground">
 				Duke Shibboleth IdP is configured. Click below to try logging in.
@@ -97,7 +118,7 @@
 			</CardHeader>
 			<CardContent>
 				<Button href="/api/auth/login" class="w-full" size="lg">
-					<LogIn class="mr-2 h-4 w-4" />
+					<HugeiconsIcon icon={Login03Icon} strokeWidth={2} class="mr-2 h-4 w-4" />
 					Sign in with Duke Shibboleth IdP
 				</Button>
 			</CardContent>
